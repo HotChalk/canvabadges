@@ -64,7 +64,8 @@ require './canvabadges.rb'
 #  create a record matching our own canvabadges instance
 #  twitter_login set to false. LTI credentials created by hand later on
 #  (twitter_login lets anyone generate an LTI key and secret with a twitter login)
-d = Domain.create(:host => "badges-sbx.hotchalkember.com", :name => "Hotchalk Ember Canvabadges")
+d = Domain.create(:host => "badges-sbx.hotchalkember.com", 
+                  :name => "Hotchalk Ember Canvabadges")
 o = Organization.create(:host => "badges-sbx.hotchalkember.com", :settings => {
   'name' => "Hotchalk Ember Canvabadges", 
   'description' => "Badging app",
@@ -76,7 +77,9 @@ o = Organization.create(:host => "badges-sbx.hotchalkember.com", :settings => {
 })
 
 #Sample external config specific for sandbox
-ExternalConfig.create(:config_type => 'canvas_oss_oauth', :value => "<canvas developer key id>", :shared_secret => "<canvas developer secret>", :domain => "sandbox.hotchalkember.com", :app_name => "Hotchalk Ember Sandbox", :organization_id => o.id)
+ExternalConfig.create(:config_type => 'canvas_oss_oauth', :value => "<canvas developer key id>", 
+                      :shared_secret => "<canvas developer secret>", :domain => "sandbox.hotchalkember.com",
+                      :app_name => "Hotchalk Ember Sandbox", :organization_id => o.id)
 #Notice the reference to the main badges organization "o.id" in the tenant external configuration.
 #Additional external configs for QA or Prod are created in the same way.
 exit
