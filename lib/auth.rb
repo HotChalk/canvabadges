@@ -127,11 +127,12 @@ module Sinatra
         return_url = "#{protocol}://#{request.env['badges.original_domain']}/oauth_success"
         code = params['code']
         url = "#{protocol}://#{domain.host}/login/oauth2/token"
+        @oauth_config = OAuthConfig.oauth_config(@org, domain.host)
         secure_connection = !@org.settings['insecure']
         response = Typhoeus.post(url, body: {
-          :client_id => oauth_config.value,
+          :client_id => @oauth_config.value,
           :code => code,
-          :client_secret => oauth_config.shared_secret,
+          :client_secret => @oauth_config.shared_secret,
           :redirect_uri => CGI.escape(return_url)
         }, ssl_verifypeer: secure_connection)
         

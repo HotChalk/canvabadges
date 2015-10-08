@@ -238,7 +238,7 @@ module Sinatra
       
       def oauth_config
         get_org
-        domain = request.env['badges.original_domain'].split(/\//)[0]
+        domain = params['custom_canvas_api_domain']
         @oauth_config = OAuthConfig.oauth_config(@org, domain)
       end
     end
