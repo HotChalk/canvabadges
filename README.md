@@ -9,46 +9,79 @@ at https://canvabadges.herokuapp.com.
 Canvabadges now supports multiple badges per course, and has better
 support for launching from multiple courses in the same session.
 
+The following setup of Canvabadges is more specific to the Hotchalk Ember environment.
+
 ## Setup
 
-**NOTE: If you are upgrading from a previous version of Canvabadges,
-you need to check out the migrations section of this page!**
+Canvabadges is a Rack compliant Sinatra app. Deployment is done using Phusion Passenger and Apache.  We need a SSL certificate so we don't get security errors in canvas when the app is embedded. The setup follows these assumptions:
 
-You need two configurations set up in order to run this app.
-First, you need to set up an application at dev.twitter.com. Write down your
-key and secret. Next you'll need a developer key for the Canvas account
-you want to speak with. Write down the key id and secret.
+ - The canvabadges root is located in **/srv/app/canvabadges**
+ - Data directory for the app's database is **/srv/data**
+ - Name of the badges instance is **badges-sbx.hotchalkember.com**
 
-Below are instructions for starting up in a dev environment. If you know
-how to run a production ruby environment you should be able to figure out
-how to translate these instructions to your prod environment.
+Sample Virtual host Apache 2.2 configuration:
+
+```apacheconf
+<VirtualHost *:80>
+  ServerName badges-sbx.hotchalkember.com
+  RewriteEngine on
+  RewriteCond %{HTTPS} off
+  RewriteRule ^/(.*) https://%{HTTP_HOST}/$1 [NC,R,L]
+</VirtualHost>
+
+<VirtualHost *:443>
+  ServerName badges-sbx.hotchalkember.com
+  SSLEngine ON
+  SSLCertificateFile /etc/apache2/ssl/badges.crt
+  SSLCertificateKeyFile /etc/apache2/ssl/badges.key
+
+  DocumentRoot /srv/app/canvabadges/public
+  PassengerRoot /var/lib/gems/2.1.0/gems/passenger-5.0.20
+  PassengerMaxPoolSize  1
+  SetEnv SESSION_KEY <RANDOM_STRING>
+  SetEnv DATABASE_URL sqlite3:////srv/data/production.sqlite3
+ <Directory /srv/app/canvabadges/public>
+    Allow from all
+    Options -MultiViews
+  </Directory>
+
+  LogLevel warn
+  ErrorLog /var/log/apache2/canvabadges-error.log
+  CustomLog /var/log/apache2/canvabadges-access.log combined
+</VirtualHost>
+
+```
+  
+  Now in the canvabadges root folder:
 
 ```bash
 # install gems...
 sudo bundle install
 
-# let's set up the variables you'll need in order to function
+# Set the data model to support multiple Canvas instances (such as QA, Prod, Sandbox
 irb
 require './canvabadges.rb'
-#  store your Canvas token settings
-ExternalConfig.create(:config_type => 'canvas_oauth', :value => "<canvas developer key id>", :shared_secret => "<canvas developer secret>")
-#  store your twitter token settings
-ExternalConfig.create(:config_type => 'twitter_for_login', :value => "<twitter consmyer key>", :shared_secret => "<twitter shared secret>")
-#  create a record matching your domain
-#  set twitter_login to false if you only want LTI credentials created by hand
+#  create a record matching our own canvabadges instance
+#  twitter_login set to false. LTI credentials created by hand later on
 #  (twitter_login lets anyone generate an LTI key and secret with a twitter login)
-d = Domain.create(:host => "badgemagic.yourdomain.com", :name => "Name Of Your Badging Thing")
-o = Organization.create(:host => "badgemagic.yourdomain.com", :settings => {
-  'name' => "Name Of Your Badging Thing", 
-  'description' => "I just really like badging!",
-  'twitter_login' => true,
-  'url' => 'http://badgemagic.com',
-  'image' => 'http://badgemagic.com/images/90x90.png',
-  'email' => 'admin_or_support@badgemagic.com'
+d = Domain.create(:host => "badges-sbx.hotchalkember.com", :name => "Hotchalk Ember Canvabadges")
+o = Organization.create(:host => "badges-sbx.hotchalkember.com", :settings => {
+  'name' => "Hotchalk Ember Canvabadges", 
+  'description' => "Badging app",
+  'twitter_login' => false,
+  'url' => 'https://badges-sbx.hotchalkember.com',
+  'image' => '<optional>',
+  'email' => '<optional>',
+  'oss_oauth' => true
 })
+
+#Sample external config specific for sandbox
+ExternalConfig.create(:config_type => 'canvas_oss_oauth', :value => "<canvas developer key id>", :shared_secret => "<canvas developer secret>", :domain => "sandbox.hotchalkember.com", :app_name => "Hotchalk Ember Sandbox", :organization_id => o.id)
+#Notice the reference to the main badges organization "o.id" in the tenant external configuration.
+#Additional external configs for QA or Prod are created in the same way.
 exit
 
-# to create an LTI configuration by hand, do the following
+# Create LTI configuration. Key and secrets to use in Ember
 irb
 require './canvabadges.rb'
 #  create a new LTI configuration
@@ -57,94 +90,12 @@ conf = ExternalConfig.generate("My Magic LTI Config")
 puts "key:    #{conf.value}"
 puts "secret: #{conf.shared_secret}"
 exit
-
-# now start up your server
-shotgun
 ```
-
-Note that in a production environment you'll also need to set the SESSION_KEY environment variable or you'll get errors on boot.
-
-## Migrations
-
-If you've been running Canvabadges for a little while, we've made a minor 
-change that will affect you. We have separated the badge configuration
-settings from badge completion settings, making it possible for two courses
-to use the same badge. This adds a lot of flexibility and will fix an
-unexpected error with large badge URLs (i.e. data-uri), so I'd suggest
-you get to a console and run the following command after updating your code:
-
-```ruby
-BadgeConfig.generate_badge_placement_configs
-FixupMigration.enlarge_columns
+Canvas developer keys are created by logging in as a site admin and going to 
+`https://<canvas instance>/developer_keys` and creating one. You can use the
+image at `https://badges-sbx.hotchalkember.com/logo.png` as the developer key image. For
+the redirect URI enter `https://badges-sbx.hotchalkember.com/oauth_success`. 
 ```
-
-It may take a little while to run depending on how many badges you've got
-set up already.
-
-
-## Advanced Settings
-
-### Multitenancy
-Canvabadges by default only talks to one instance of Canvas. It's possible for it
-to talk to multiple instances, it just takes an additional step.
-
-Multitenancy is set at the organization level. An organization can have multiple 
-domains (each has a corresponding object). On the organization object if you make
-the following change:
-
-```ruby
-org = Organization.find(:name => "whatever it's called")
-settings = org.settings
-settings['oss_oauth'] = true
-org.settings = settings
-org.save
-```
-
-Then the organzation will be set up to use its own configuration. Now we need to
-add a Canvas developer key. Ask the Canvas admin -- if that's you, you can create
-a new developer key by logging in as a site admin and going to 
-`https://<yourcanvas>/developer_keys` and creating one. You can use the
-image at `https://<canvabadges>/logo.png` as the developer key image. For
-the redirect URI enter `https://<canvabadges>/oauth_success`. Then in
-Canvabadges run the following code:
-
-```ruby
-ec = ExternalConfig.new(:config_type => 'canvas_oss_oauth', :organization_id => org.id)
-ec.app_name = "Name for Canvas Instance"
-ec.value = "<developer key id>"
-ec.shared_secret = "<developer key secret>"
-ec.save
-```
-
-### Getting Your Canvas Working with www.canvabadges.org
-This gets asked of me enough that I figured I should just write it down for everyone's
-benefit. If you are the owner of a Canvas instance and you don't want to run your own
-Canvabadges instance, you have a couple options for getting it to play nice with
-the www.canvabadges.org instance.
-
-1. Point a subdomain you own to canvabadges.org. You would create a DNS CNAME to do this.
-Since Canvabadges requires SSL you'll have to generate an SSL cert for your subdomain and
-share it with me (@whitmer). Canvabadges runs in heroku, and I have to configure it to
-pick up your subdomain, but that means I need the actual certs. This lets you "own"
-your badges long-term since you control the subdomain, but the cert thing is usually a
-show-stopper for most sysadmins (justifiably so).
-
-2. Settle for a branded subdirectory. You can own www.canvabadges.org/_something (where you
-pick "something") without getting too crazy. The badge certificates will stay on
-canvabadges.org so you won't control your own destiny, but if that's not a huge issue then
-all I need is:
-
-  - a developer key as specified in the Multitenancy section (not required if you're in Instructure's cloud)
-  - the domain of your Canvas instance
-  - a 90x90 px image for your organization
-  - a URL for your organization's home page
-
-  Once you're ready just ping me (@whitmer).
-
-3. Run your own instance of Canvabadges. It's a Sinatra app and not too complicated, you 
-should hopefully be able to get it up pretty easily. Then you can put it on whatever 
-domain/subdomain you like and you never have to tell me any of your secrets.
-
 
 ## TODO
 
